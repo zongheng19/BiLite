@@ -1,5 +1,6 @@
 use crate::mpv::ipc::MpvIpc;
 use crate::mpv::process::MpvProcess;
+use crate::playlist;
 use crate::storage::config::AppConfig;
 use crate::storage::database::{Database, PlaybackRecord};
 use serde_json::json;
@@ -114,4 +115,21 @@ pub fn save_config(config: AppConfig, state: State<AppState>) -> Result<(), Stri
 #[tauri::command]
 pub fn is_first_run(state: State<AppState>) -> bool {
     AppConfig::is_first_run(&state.data_dir)
+}
+
+#[tauri::command]
+pub fn get_playlist(current_file: String) -> Vec<String> {
+    playlist::scan_directory(&current_file)
+}
+
+#[tauri::command]
+pub fn get_next_file(current_file: String) -> Option<String> {
+    let list = playlist::scan_directory(&current_file);
+    playlist::next_file(&list, &current_file).cloned()
+}
+
+#[tauri::command]
+pub fn get_prev_file(current_file: String) -> Option<String> {
+    let list = playlist::scan_directory(&current_file);
+    playlist::prev_file(&list, &current_file).cloned()
 }

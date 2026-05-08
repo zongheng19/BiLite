@@ -3,6 +3,7 @@
 mod commands;
 mod mpv;
 mod platform;
+mod playlist;
 mod storage;
 
 use commands::AppState;
@@ -86,6 +87,9 @@ fn main() {
             commands::get_config,
             commands::save_config,
             commands::is_first_run,
+            commands::get_playlist,
+            commands::get_next_file,
+            commands::get_prev_file,
         ])
         .run(tauri::generate_context!())
         .expect("error while running BiLite");
