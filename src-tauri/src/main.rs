@@ -3,17 +3,27 @@
 mod commands;
 mod mpv;
 mod platform;
+mod storage;
 
 use commands::AppState;
 use mpv::process::MpvProcess;
+use storage::config::AppConfig;
+use storage::database::Database;
 use std::sync::Mutex;
 use tauri::{Emitter, Manager};
 
 fn main() {
+    let data_dir = dirs::data_dir().unwrap().join("BiLite");
+    let database = Database::open(&data_dir).expect("Failed to open database");
+    let config = AppConfig::load(&data_dir);
+
     tauri::Builder::default()
         .manage(AppState {
             mpv_process: Mutex::new(MpvProcess::new()),
             mpv_ipc: Mutex::new(None),
+            database: Mutex::new(database),
+            config: Mutex::new(config),
+            data_dir,
         })
         .setup(|app| {
             let window = app.get_webview_window("main").unwrap();
@@ -71,6 +81,11 @@ fn main() {
             commands::set_speed,
             commands::toggle_fullscreen,
             commands::set_subtitle_track,
+            commands::save_playback_position,
+            commands::get_playback_position,
+            commands::get_config,
+            commands::save_config,
+            commands::is_first_run,
         ])
         .run(tauri::generate_context!())
         .expect("error while running BiLite");
