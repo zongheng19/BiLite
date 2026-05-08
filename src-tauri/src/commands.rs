@@ -133,3 +133,22 @@ pub fn get_prev_file(current_file: String) -> Option<String> {
     let list = playlist::scan_directory(&current_file);
     playlist::prev_file(&list, &current_file).cloned()
 }
+
+#[tauri::command]
+pub fn register_file_associations(extensions: Vec<String>) -> Result<(), String> {
+    let exe_path = std::env::current_exe()
+        .map_err(|e| e.to_string())?
+        .to_str()
+        .unwrap_or("")
+        .to_string();
+
+    #[cfg(target_os = "windows")]
+    crate::platform::windows::register_associations(&exe_path, &extensions)?;
+
+    Ok(())
+}
+
+#[tauri::command]
+pub fn get_cli_args() -> Vec<String> {
+    std::env::args().skip(1).collect()
+}

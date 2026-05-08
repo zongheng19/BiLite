@@ -90,6 +90,8 @@ fn main() {
             commands::get_playlist,
             commands::get_next_file,
             commands::get_prev_file,
+            commands::register_file_associations,
+            commands::get_cli_args,
         ])
         .run(tauri::generate_context!())
         .expect("error while running BiLite");

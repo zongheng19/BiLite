@@ -1,3 +1,4 @@
+import { invoke } from "@tauri-apps/api/core";
 import { onMpvEvent, MpvEvent } from "./bridge";
 import { updateState } from "./state";
 import { initPlayerUI } from "./player-ui";
@@ -7,8 +8,15 @@ import { initSpeedPanel } from "./speed-panel";
 import { initShortcuts } from "./shortcuts";
 import { initSubtitlePanel } from "./subtitle-panel";
 import { initPlaylistPanel } from "./playlist-panel";
+import { showWizard } from "./wizard";
 
 async function init(): Promise<void> {
+  const firstRun: boolean = await invoke("is_first_run");
+  if (firstRun) {
+    showWizard();
+    return;
+  }
+
   initPlayerUI();
   initProgressBar();
   initVolume();

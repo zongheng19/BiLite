@@ -17,3 +17,6 @@ raw-window-handle = "0.6"
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
+
+[target.'cfg(windows)'.dependencies]
+winreg = "0.52"
