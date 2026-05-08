@@ -1,0 +1,12 @@
+[data-theme="dark"] {
+  --bg-control: linear-gradient(transparent, rgba(0, 0, 0, 0.85));
+  --bg-top: linear-gradient(rgba(0, 0, 0, 0.6), transparent);
+  --bg-panel: rgba(21, 21, 21, 0.95);
+  --text-primary: #ffffff;
+  --text-secondary: rgba(255, 255, 255, 0.7);
+  --text-muted: rgba(255, 255, 255, 0.5);
+  --border-color: rgba(255, 255, 255, 0.1);
+  --progress-bg: rgba(255, 255, 255, 0.2);
+  --progress-buffer: rgba(255, 255, 255, 0.3);
+  --subtitle-bg: rgba(0, 0, 0, 0.7);
+}

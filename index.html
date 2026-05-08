@@ -4,17 +4,44 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>BiLite</title>
+  <link rel="stylesheet" href="/src/styles/reset.css" />
+  <link rel="stylesheet" href="/src/styles/variables.css" />
+  <link rel="stylesheet" href="/src/styles/theme-dark.css" />
+  <link rel="stylesheet" href="/src/styles/theme-light.css" />
+  <link rel="stylesheet" href="/src/styles/player.css" />
+  <link rel="stylesheet" href="/src/styles/progress.css" />
+  <link rel="stylesheet" href="/src/styles/panels.css" />
 </head>
-<body>
+<body data-theme="dark">
   <div id="app">
     <div id="player-container">
       <div id="top-bar" class="auto-hide">
-        <span id="video-title"></span>
+        <span class="video-title" id="video-title"></span>
       </div>
       <div id="subtitle-layer"></div>
       <div id="control-bar" class="auto-hide">
-        <div id="progress-area"></div>
-        <div id="controls"></div>
+        <div id="progress-area">
+          <div class="progress-bar">
+            <div class="progress-buffer"></div>
+            <div class="progress-played"></div>
+            <div class="progress-thumb"></div>
+          </div>
+          <div class="progress-tooltip"></div>
+        </div>
+        <div id="controls">
+          <div class="left">
+            <button class="ctrl-btn play-btn" id="btn-play">&#9654;</button>
+            <span class="time-display"><span id="time-current">00:00</span> / <span id="time-duration">00:00</span></span>
+          </div>
+          <div class="right">
+            <button class="ctrl-btn speed-btn" id="btn-speed">1.0x</button>
+            <button class="ctrl-btn" id="btn-subtitle">&#23383;&#24149;</button>
+            <div class="volume-wrap" id="volume-wrap">
+              <button class="ctrl-btn" id="btn-volume">&#128266;</button>
+            </div>
+            <button class="ctrl-btn" id="btn-fullscreen">&#9974;</button>
+          </div>
+        </div>
       </div>
     </div>
   </div>

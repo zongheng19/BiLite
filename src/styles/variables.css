@@ -1,0 +1,13 @@
+:root {
+  --accent: #00a1d6;
+  --accent-hover: #00b5e5;
+  --control-height: 48px;
+  --progress-height: 3px;
+  --progress-height-hover: 6px;
+  --transition-fast: 0.2s ease;
+  --transition-normal: 0.3s ease;
+  --font-size-sm: 12px;
+  --font-size-base: 14px;
+  --radius-sm: 4px;
+  --radius-md: 8px;
+}

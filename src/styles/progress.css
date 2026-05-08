@@ -1,0 +1,9 @@
+#progress-area { position: relative; height: 14px; display: flex; align-items: center; cursor: pointer; }
+.progress-bar { width: 100%; height: var(--progress-height); background: var(--progress-bg); border-radius: 2px; position: relative; transition: height var(--transition-fast); }
+#progress-area:hover .progress-bar { height: var(--progress-height-hover); }
+.progress-buffer { position: absolute; top: 0; left: 0; height: 100%; background: var(--progress-buffer); border-radius: 2px; }
+.progress-played { position: absolute; top: 0; left: 0; height: 100%; background: var(--accent); border-radius: 2px; }
+.progress-thumb { position: absolute; top: 50%; width: 12px; height: 12px; background: var(--accent); border-radius: 50%; transform: translate(-50%, -50%); box-shadow: 0 0 4px rgba(0, 161, 214, 0.5); opacity: 0; transition: opacity var(--transition-fast); }
+#progress-area:hover .progress-thumb { opacity: 1; }
+.progress-tooltip { position: absolute; bottom: 20px; transform: translateX(-50%); background: rgba(0, 0, 0, 0.8); color: #fff; padding: 3px 8px; border-radius: var(--radius-sm); font-size: 12px; pointer-events: none; display: none; }
+#progress-area:hover .progress-tooltip { display: block; }
