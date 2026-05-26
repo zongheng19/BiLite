@@ -19,6 +19,7 @@ fn main() {
     let config = AppConfig::load(&data_dir);
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         .manage(AppState {
             mpv_process: Mutex::new(MpvProcess::new()),
             mpv_ipc: Mutex::new(None),
@@ -31,46 +32,97 @@ fn main() {
             let wid = platform::get_window_handle(&window)
                 .map_err(|e| Box::<dyn std::error::Error>::from(e))?;
 
+            // Resolve mpv sidecar path using Tauri's shell API
             let mpv_bin = app
                 .path()
                 .resource_dir()
                 .map_err(|e| Box::<dyn std::error::Error>::from(e.to_string()))?
                 .join(if cfg!(windows) { "mpv.exe" } else { "mpv" });
 
+            // Fallback: check if mpv is in the same directory as the executable
+            let mpv_path = if mpv_bin.exists() {
+                mpv_bin
+            } else {
+                let exe_dir = std::env::current_exe()
+                    .map_err(|e| Box::<dyn std::error::Error>::from(e.to_string()))?
+                    .parent()
+                    .unwrap()
+                    .to_path_buf();
+                let alt = exe_dir.join(if cfg!(windows) { "mpv.exe" } else { "mpv" });
+                if alt.exists() {
+                    alt
+                } else {
+                    // Last resort: try system PATH
+                    std::path::PathBuf::from(if cfg!(windows) { "mpv.exe" } else { "mpv" })
+                }
+            };
+
             let state = app.state::<AppState>();
             let mut process = state.mpv_process.lock().map_err(|e| e.to_string())?;
-            process
-                .spawn(&wid, mpv_bin.to_str().unwrap())
-                .map_err(|e| Box::<dyn std::error::Error>::from(e))?;
 
-            // Wait briefly for mpv to create IPC socket, then connect
-            let ipc_path = process.ipc_path().to_string();
-            let app_handle = app.handle().clone();
-            std::thread::spawn(move || {
-                std::thread::sleep(std::time::Duration::from_millis(500));
-                match mpv::ipc::MpvIpc::connect(&ipc_path) {
-                    Ok((ipc, mut rx)) => {
-                        let _ = ipc.observe_property(1, "time-pos");
-                        let _ = ipc.observe_property(2, "duration");
-                        let _ = ipc.observe_property(3, "pause");
-                        let _ = ipc.observe_property(4, "volume");
-                        let _ = ipc.observe_property(5, "speed");
-                        let _ = ipc.observe_property(6, "eof-reached");
+            match process.spawn(&wid, mpv_path.to_str().unwrap()) {
+                Ok(()) => {
+                    let ipc_path = process.ipc_path().to_string();
+                    drop(process); // Release the lock before spawning thread
 
-                        let state = app_handle.state::<AppState>();
-                        *state.mpv_ipc.lock().unwrap() = Some(ipc);
+                    let app_handle = app.handle().clone();
+                    std::thread::spawn(move || {
+                        // Give mpv time to start and create the pipe
+                        std::thread::sleep(std::time::Duration::from_millis(200));
+                        match mpv::ipc::MpvIpc::connect(&ipc_path) {
+                            Ok((ipc, mut rx)) => {
+                                eprintln!("[BiLite] mpv IPC connected successfully");
+                                let _ = ipc.observe_property(1, "time-pos");
+                                let _ = ipc.observe_property(2, "duration");
+                                let _ = ipc.observe_property(3, "pause");
+                                let _ = ipc.observe_property(4, "volume");
+                                let _ = ipc.observe_property(5, "speed");
+                                let _ = ipc.observe_property(6, "eof-reached");
+                                // Stats observers (for the debug overlay)
+                                let _ = ipc.observe_property(10, "video-codec");
+                                let _ = ipc.observe_property(11, "video-params/w");
+                                let _ = ipc.observe_property(12, "video-params/h");
+                                let _ = ipc.observe_property(13, "container-fps");
+                                let _ = ipc.observe_property(14, "estimated-vf-fps");
+                                let _ = ipc.observe_property(15, "audio-codec");
+                                let _ = ipc.observe_property(16, "audio-params/samplerate");
+                                let _ = ipc.observe_property(17, "audio-params/channel-count");
+                                let _ = ipc.observe_property(18, "file-size");
+                                let _ = ipc.observe_property(19, "video-bitrate");
+                                let _ = ipc.observe_property(20, "audio-bitrate");
+                                let _ = ipc.observe_property(21, "frame-drop-count");
+                                let _ = ipc.observe_property(22, "decoder-frame-drop-count");
+                                let _ = ipc.observe_property(23, "hwdec-current");
+                                let _ = ipc.observe_property(24, "demuxer-cache-duration");
 
-                        // Forward mpv events to frontend
-                        let rt = tokio::runtime::Runtime::new().unwrap();
-                        rt.block_on(async {
-                            while let Some(event) = rx.recv().await {
-                                let _ = app_handle.emit("mpv-event", &event);
+                                let state = app_handle.state::<AppState>();
+                                *state.mpv_ipc.lock().unwrap() = Some(ipc);
+
+                                // Forward mpv events to frontend with throttling
+                                let rt = tokio::runtime::Runtime::new().unwrap();
+                                rt.block_on(async {
+                                    let mut last_time_pos = std::time::Instant::now();
+                                    while let Some(event) = rx.recv().await {
+                                        // Throttle time-pos to max 5 updates/sec
+                                        if event.name.as_deref() == Some("time-pos") {
+                                            let now = std::time::Instant::now();
+                                            if now.duration_since(last_time_pos).as_millis() < 200 {
+                                                continue;
+                                            }
+                                            last_time_pos = now;
+                                        }
+                                        let _ = app_handle.emit("mpv-event", &event);
+                                    }
+                                });
                             }
-                        });
-                    }
-                    Err(e) => eprintln!("Failed to connect to mpv IPC: {}", e),
+                            Err(e) => eprintln!("Failed to connect to mpv IPC: {}", e),
+                        }
+                    });
                 }
-            });
+                Err(e) => {
+                    eprintln!("Failed to spawn mpv: {}. Player will run without video.", e);
+                }
+            }
 
             Ok(())
         })
@@ -82,8 +134,15 @@ fn main() {
             commands::set_speed,
             commands::toggle_fullscreen,
             commands::set_subtitle_track,
+            commands::set_video_property,
+            commands::set_volume_max,
+            commands::set_equalizer,
+            commands::clear_equalizer,
+            commands::toggle_loop,
+            commands::toggle_mirror,
             commands::save_playback_position,
             commands::get_playback_position,
+            commands::get_recent_playback,
             commands::get_config,
             commands::save_config,
             commands::is_first_run,

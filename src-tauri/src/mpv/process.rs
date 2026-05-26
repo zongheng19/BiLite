@@ -1,4 +1,4 @@
-use std::process::{Child, Command};
+use std::process::{Child, Command, Stdio};
 
 use crate::platform;
 
@@ -42,6 +42,9 @@ impl MpvProcess {
                 "--idle=yes",
                 "--sub-auto=fuzzy",
             ])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::piped())
             .spawn()
             .map_err(|e| format!("Failed to spawn mpv: {}", e))?;
 

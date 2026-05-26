@@ -1,9 +1,89 @@
-#progress-area { position: relative; height: 14px; display: flex; align-items: center; cursor: pointer; }
-.progress-bar { width: 100%; height: var(--progress-height); background: var(--progress-bg); border-radius: 2px; position: relative; transition: height var(--transition-fast); }
-#progress-area:hover .progress-bar { height: var(--progress-height-hover); }
-.progress-buffer { position: absolute; top: 0; left: 0; height: 100%; background: var(--progress-buffer); border-radius: 2px; }
-.progress-played { position: absolute; top: 0; left: 0; height: 100%; background: var(--accent); border-radius: 2px; }
-.progress-thumb { position: absolute; top: 50%; width: 12px; height: 12px; background: var(--accent); border-radius: 50%; transform: translate(-50%, -50%); box-shadow: 0 0 4px rgba(0, 161, 214, 0.5); opacity: 0; transition: opacity var(--transition-fast); }
-#progress-area:hover .progress-thumb { opacity: 1; }
-.progress-tooltip { position: absolute; bottom: 20px; transform: translateX(-50%); background: rgba(0, 0, 0, 0.8); color: #fff; padding: 3px 8px; border-radius: var(--radius-sm); font-size: 12px; pointer-events: none; display: none; }
-#progress-area:hover .progress-tooltip { display: block; }
+#progress-area {
+  position: relative;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+  margin: 0 -2px;
+}
+
+.progress-bar {
+  width: 100%;
+  height: 3px;
+  background: var(--progress-bg);
+  border-radius: 2px;
+  position: relative;
+  transition: height 0.15s ease;
+}
+
+#progress-area:hover .progress-bar {
+  height: 6px;
+}
+
+.progress-buffer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 100%;
+  background: var(--progress-buffer);
+  border-radius: 2px;
+  transition: width 0.2s ease;
+}
+
+.progress-played {
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 100%;
+  background: linear-gradient(90deg, var(--accent), var(--accent-hover));
+  border-radius: 2px;
+  box-shadow: 0 0 6px rgba(0, 161, 214, 0.3);
+}
+
+.progress-thumb {
+  position: absolute;
+  top: 50%;
+  width: 14px;
+  height: 14px;
+  background: #fff;
+  border-radius: 50%;
+  transform: translate(-50%, -50%) scale(0);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.5);
+  transition: transform 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+#progress-area:hover .progress-thumb {
+  transform: translate(-50%, -50%) scale(1);
+}
+
+.progress-tooltip {
+  position: absolute;
+  bottom: 24px;
+  transform: translateX(-50%);
+  background: rgba(0, 0, 0, 0.85);
+  color: #fff;
+  padding: 4px 10px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-feature-settings: "tnum";
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+  display: none;
+  white-space: nowrap;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+
+.progress-tooltip::after {
+  content: "";
+  position: absolute;
+  bottom: -4px;
+  left: 50%;
+  transform: translateX(-50%);
+  border-left: 4px solid transparent;
+  border-right: 4px solid transparent;
+  border-top: 4px solid rgba(0, 0, 0, 0.85);
+}
+
+#progress-area:hover .progress-tooltip {
+  display: block;
+}

@@ -64,4 +64,24 @@ impl Database {
             Err(e) => Err(e.to_string()),
         }
     }
+
+    pub fn get_most_recent(&self) -> Result<Option<PlaybackRecord>, String> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT file_path, position, duration, last_played FROM playback_history ORDER BY last_played DESC LIMIT 1")
+            .map_err(|e| e.to_string())?;
+        let result = stmt.query_row([], |row| {
+            Ok(PlaybackRecord {
+                file_path: row.get(0)?,
+                position: row.get(1)?,
+                duration: row.get(2)?,
+                last_played: row.get(3)?,
+            })
+        });
+        match result {
+            Ok(record) => Ok(Some(record)),
+            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+            Err(e) => Err(e.to_string()),
+        }
+    }
 }

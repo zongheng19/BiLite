@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { onMpvEvent, MpvEvent, playFile, seek } from "./bridge";
 import { state, updateState } from "./state";
 import { initPlayerUI, formatTime } from "./player-ui";
@@ -9,9 +9,13 @@ import { initSpeedPanel } from "./speed-panel";
 import { initShortcuts } from "./shortcuts";
 import { initSubtitlePanel } from "./subtitle-panel";
 import { initPlaylistPanel, getCurrentFile, setCurrentFile } from "./playlist-panel";
+import { initEmptyState, hideEmptyState } from "./empty-state";
+import { initContextMenu } from "./context-menu";
+import { feedStatsEvent } from "./stats-overlay";
 import { showWizard } from "./wizard";
 
 async function loadFileWithResume(filePath: string): Promise<void> {
+  hideEmptyState();
   const record = await invoke<{ position: number; duration: number } | null>(
     "get_playback_position", { path: filePath }
   );
@@ -20,35 +24,30 @@ async function loadFileWithResume(filePath: string): Promise<void> {
   setCurrentFile(filePath);
   updateState({ title: filePath.split(/[/\\]/).pop() || "" });
 
+  // Auto-resume to last playback position
   if (record && record.position > 5 && record.position < record.duration - 10) {
-    showResumePrompt(record.position, () => {
-      seek(record.position, "absolute");
-    });
+    const resumePos = record.position;
+    // Seek after a short delay so mpv has loaded the file
+    setTimeout(() => seek(resumePos, "absolute"), 300);
+    // Show a brief prompt offering "从头开始" override
+    showResumePrompt(resumePos, () => seek(0, "absolute"));
   }
 }
 
-function showResumePrompt(position: number, onResume: () => void): void {
+function showResumePrompt(position: number, onRestart: () => void): void {
   const prompt = document.createElement("div");
-  prompt.style.cssText = `
-    position: absolute; bottom: 70px; left: 50%; transform: translateX(-50%);
-    background: var(--bg-panel); padding: 10px 20px; border-radius: var(--radius-md);
-    color: var(--text-primary); font-size: 13px; z-index: 100;
-    display: flex; align-items: center; gap: 12px;
-    box-shadow: 0 4px 12px rgba(0,0,0,0.3);
-  `;
+  prompt.className = "resume-prompt";
   const timeStr = formatTime(position);
   prompt.innerHTML = `
-    <span>上次播放到 ${timeStr}</span>
-    <button style="background:var(--accent);color:#fff;border:none;padding:4px 12px;border-radius:4px;cursor:pointer;">继续播放</button>
-    <button style="background:none;color:var(--text-muted);border:1px solid var(--border-color);padding:4px 12px;border-radius:4px;cursor:pointer;">从头开始</button>
+    <span>已从 ${timeStr} 继续播放</span>
+    <button class="resume-prompt-btn secondary">从头开始</button>
   `;
 
-  const [resumeBtn, restartBtn] = prompt.querySelectorAll("button");
-  resumeBtn.addEventListener("click", () => { onResume(); prompt.remove(); });
-  restartBtn.addEventListener("click", () => prompt.remove());
+  const restartBtn = prompt.querySelector("button")!;
+  restartBtn.addEventListener("click", () => { onRestart(); prompt.remove(); });
 
   document.getElementById("player-container")!.appendChild(prompt);
-  setTimeout(() => prompt.remove(), 8000);
+  setTimeout(() => prompt.remove(), 6000);
 }
 
 async function init(): Promise<void> {
@@ -65,6 +64,8 @@ async function init(): Promise<void> {
   initShortcuts();
   initSubtitlePanel();
   initPlaylistPanel();
+  initEmptyState((path) => loadFileWithResume(path));
+  initContextMenu();
 
   await onMpvEvent((event: MpvEvent) => {
     if (event.name === "time-pos" && event.data != null)
@@ -79,17 +80,23 @@ async function init(): Promise<void> {
       updateState({ speed: event.data as number });
     else if (event.name === "eof-reached")
       updateState({ eofReached: event.data as boolean });
+    // Forward all events to stats overlay (it filters internally)
+    feedStatsEvent(event.name, event.data);
   });
 
-  // Drag-and-drop support
-  await listen<{ paths: string[] }>("tauri://drag-drop", (event) => {
-    const files = event.payload.paths;
-    if (files.length > 0) {
-      const videoFile = files.find((f) =>
-        /\.(mp4|mkv|avi|mov|wmv|flv|webm|m4v|ts)$/i.test(f)
-      );
-      if (videoFile) {
-        loadFileWithResume(videoFile);
+  // Drag-and-drop support using Tauri v2 API
+  const appWindow = getCurrentWindow();
+  await appWindow.onDragDropEvent((event) => {
+    if (event.payload.type === "drop") {
+      const paths = event.payload.paths;
+      if (paths.length > 0) {
+        const videoFile = paths.find((f: string) =>
+          /\.(mp4|mkv|avi|mov|wmv|flv|webm|m4v|ts)$/i.test(f)
+        );
+        if (videoFile) {
+          // Use setTimeout to avoid blocking the drag-drop handler
+          setTimeout(() => loadFileWithResume(videoFile), 0);
+        }
       }
     }
   });

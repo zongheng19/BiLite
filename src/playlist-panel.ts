@@ -25,38 +25,29 @@ export async function togglePlaylistPanel(): Promise<void> {
 
   panelEl = document.createElement("div");
   panelEl.className = "playlist-panel";
-  panelEl.style.cssText = `
-    position: absolute; top: 0; right: 0; bottom: 0; width: 300px;
-    background: var(--bg-panel); z-index: 50; overflow-y: auto;
-    padding: 16px; border-left: 1px solid var(--border-color);
-    animation: slideIn 0.2s ease;
-  `;
 
-  const title = document.createElement("h3");
-  title.textContent = "播放列表";
-  title.style.cssText =
-    "color: var(--text-primary); margin-bottom: 12px; font-size: 14px;";
-  panelEl.appendChild(title);
+  const header = document.createElement("div");
+  header.className = "playlist-header";
+  header.textContent = `播放列表 (${playlist.length})`;
+  panelEl.appendChild(header);
+
+  const body = document.createElement("div");
+  body.className = "playlist-body";
+  panelEl.appendChild(body);
 
   playlist.forEach((filePath) => {
     const item = document.createElement("div");
+    item.className = "playlist-item";
+    if (filePath === currentFile) item.classList.add("active");
     const fileName = filePath.split(/[/\\]/).pop() || filePath;
     item.textContent = fileName;
-    item.style.cssText = `
-      padding: 8px 12px; border-radius: var(--radius-sm); cursor: pointer;
-      font-size: 13px; color: var(--text-secondary); margin-bottom: 4px;
-      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-    `;
-    if (filePath === currentFile) {
-      item.style.color = "var(--accent)";
-      item.style.background = "rgba(0, 161, 214, 0.1)";
-    }
+    item.title = fileName;
     item.addEventListener("click", () => {
       playFile(filePath);
       setCurrentFile(filePath);
       togglePlaylistPanel();
     });
-    panelEl!.appendChild(item);
+    body.appendChild(item);
   });
 
   document.getElementById("player-container")!.appendChild(panelEl);

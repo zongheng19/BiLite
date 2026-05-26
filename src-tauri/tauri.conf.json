@@ -11,6 +11,7 @@
   "app": {
     "windows": [
       {
+        "label": "main",
         "title": "BiLite",
         "width": 1280,
         "height": 720,

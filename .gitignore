@@ -1,4 +1,30 @@
+# Build output
 node_modules/
 dist/
 target/
 src-tauri/gen/
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Tauri
+src-tauri/Cargo.lock.bk
+
+# mpv binary (too large for git, users download separately - see README)
+src-tauri/resources/mpv-*.exe
+src-tauri/resources/mpv
+src-tauri/resources/*.dll
+
+# Test data
+测试视频/
+test-videos/
+
+# Logs
+*.log
+
+# Local agent / IDE state
+.claude/
+.superpowers/
