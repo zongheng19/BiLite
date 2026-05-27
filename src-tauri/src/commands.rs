@@ -269,11 +269,49 @@ pub fn get_cli_args() -> Vec<String> {
 //
 // User can override either path via the settings panel; explicit settings win.
 
-// whisper.cpp executables we recognize, in preferred order:
-// - whisper-cli.exe (newer official build)
-// - main64.exe (PotPlayer's whisper.cpp builds in CPU/, Vulkan/ subdirs)
-// - main.exe (BUT NOT Const-me's main.exe — see is_constme_whisper)
+// === Two whisper backends, auto-detected by exe name ===
+//
+// whisper.cpp:    whisper-cli.exe / main.exe / main64.exe
+//   model:        single-file GGML (ggml-*.bin / *.gguf)
+//   args:         -m model -l lang -of out -osrt audio.wav
+//   input:        wav/mp3/ogg/flac only
+//
+// faster-whisper: faster-whisper-xxl.exe / whisper-faster*.exe
+//   model:        directory with model.bin + tokenizer.json (CTranslate2 / PotPlayer-compatible)
+//   args:         --model path --language lang --output_format srt --output_dir d audio
+//   input:        any media (built-in ffmpeg)
+//
+// We always pre-extract wav via mpv anyway, so both can take a wav.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum WhisperBackend {
+    WhisperCpp,
+    FasterWhisper,
+}
+
+fn detect_backend(exe: &str) -> WhisperBackend {
+    let lower = std::path::Path::new(exe)
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("")
+        .to_lowercase();
+    if lower.contains("faster") {
+        WhisperBackend::FasterWhisper
+    } else {
+        WhisperBackend::WhisperCpp
+    }
+}
+
+const WHISPER_CPP_EXE_NAMES: &[&str] = &[
+    "whisper-cli.exe", "whisper-cli", "main64.exe", "main.exe", "main",
+];
+const FASTER_WHISPER_EXE_NAMES: &[&str] = &[
+    "faster-whisper-xxl.exe", "faster-whisper-xxl",
+    "whisper-faster.exe", "whisper-faster",
+    "whisper-faster-xxl.exe",
+];
+// Combined list, preferring faster-whisper if both present (it's faster).
 const WHISPER_EXE_NAMES: &[&str] = &[
+    "faster-whisper-xxl.exe", "whisper-faster-xxl.exe", "whisper-faster.exe",
     "whisper-cli.exe", "whisper-cli", "main64.exe", "main.exe", "main",
 ];
 const MODEL_EXT: &[&str] = &["bin", "gguf"];
@@ -367,35 +405,48 @@ fn is_faster_whisper_model_file(model_file: &std::path::Path) -> bool {
     false
 }
 
-fn find_whisper_model(state: &AppState) -> Option<std::path::PathBuf> {
+fn find_whisper_model(state: &AppState, backend: WhisperBackend) -> Option<std::path::PathBuf> {
     for root in portable_roots(state) {
         let dir = root.join("Model");
         if !dir.exists() { continue; }
-        // Direct files in Model/
-        if let Ok(entries) = std::fs::read_dir(&dir) {
-            for entry in entries.flatten() {
-                let path = entry.path();
-                if path.is_file() {
-                    if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
-                        if MODEL_EXT.contains(&ext.to_lowercase().as_str())
-                            && !is_faster_whisper_model_file(&path)
-                        {
-                            return Some(path);
-                        }
+
+        if backend == WhisperBackend::FasterWhisper {
+            // Find a CT2 model directory: Model/<name>/ containing model.bin + tokenizer.json
+            if let Ok(entries) = std::fs::read_dir(&dir) {
+                for entry in entries.flatten() {
+                    let p = entry.path();
+                    if p.is_dir() && is_faster_whisper_dir(&p) {
+                        return Some(p);
                     }
                 }
             }
-            // One level deep (Model/<name>/*.bin), but skip faster-whisper dirs.
-            for entry in std::fs::read_dir(&dir).into_iter().flatten().flatten() {
-                let p = entry.path();
-                if p.is_dir() && !is_faster_whisper_dir(&p) {
-                    if let Ok(sub) = std::fs::read_dir(&p) {
-                        for f in sub.flatten() {
-                            let path = f.path();
-                            if path.is_file() {
-                                if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
-                                    if MODEL_EXT.contains(&ext.to_lowercase().as_str()) {
-                                        return Some(path);
+        } else {
+            // whisper.cpp: single GGML file, skip CT2 model dirs
+            if let Ok(entries) = std::fs::read_dir(&dir) {
+                for entry in entries.flatten() {
+                    let path = entry.path();
+                    if path.is_file() {
+                        if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
+                            if MODEL_EXT.contains(&ext.to_lowercase().as_str())
+                                && !is_faster_whisper_model_file(&path)
+                            {
+                                return Some(path);
+                            }
+                        }
+                    }
+                }
+                // One level deep, skip CT2 dirs
+                for entry in std::fs::read_dir(&dir).into_iter().flatten().flatten() {
+                    let p = entry.path();
+                    if p.is_dir() && !is_faster_whisper_dir(&p) {
+                        if let Ok(sub) = std::fs::read_dir(&p) {
+                            for f in sub.flatten() {
+                                let path = f.path();
+                                if path.is_file() {
+                                    if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
+                                        if MODEL_EXT.contains(&ext.to_lowercase().as_str()) {
+                                            return Some(path);
+                                        }
                                     }
                                 }
                             }
@@ -466,7 +517,9 @@ fn ascii_safe_model_path(model: &str) -> Result<String, String> {
     Ok(dest.to_string_lossy().to_string())
 }
 
-fn resolve_whisper_paths(state: &AppState) -> Result<(String, String, String), String> {
+fn resolve_whisper_paths(
+    state: &AppState,
+) -> Result<(String, String, String, WhisperBackend), String> {
     let config = state.config.lock().map_err(|e| e.to_string())?;
     let mut exe = config.whisper.executable.clone();
     let mut model = config.whisper.model.clone();
@@ -478,8 +531,10 @@ fn resolve_whisper_paths(state: &AppState) -> Result<(String, String, String), S
             exe = p.to_string_lossy().to_string();
         }
     }
+    let backend = if exe.is_empty() { WhisperBackend::WhisperCpp } else { detect_backend(&exe) };
+
     if model.is_empty() {
-        if let Some(p) = find_whisper_model(state) {
+        if let Some(p) = find_whisper_model(state, backend) {
             model = p.to_string_lossy().to_string();
         }
     }
@@ -491,15 +546,20 @@ fn resolve_whisper_paths(state: &AppState) -> Result<(String, String, String), S
         return Err("未找到 whisper 可执行文件，请放入 Module/Whisper/ 目录".to_string());
     }
     if model.is_empty() {
-        if detect_potplayer_models(state) {
-            return Err(
-                "检测到 PotPlayer 风格的 faster-whisper 模型，但 BiLite 使用 whisper.cpp 的 GGML 格式（单文件 ggml-*.bin / .gguf），两者不兼容。请从 https://huggingface.co/ggerganov/whisper.cpp/tree/main 下载 GGML 模型放入 Model/ 目录。"
-                    .to_string()
-            );
-        }
-        return Err("未找到 GGML 格式模型文件（ggml-*.bin / .gguf），请放入 Model/ 目录".to_string());
+        return match backend {
+            WhisperBackend::WhisperCpp => {
+                if detect_potplayer_models(state) {
+                    Err("检测到 faster-whisper 风格的模型目录，但当前 whisper.cpp 引擎只能用 GGML 单文件模型。请下载 ggml-*.bin 到 Model/，或换用 faster-whisper-xxl.exe。".to_string())
+                } else {
+                    Err("未找到 GGML 格式模型文件（ggml-*.bin / .gguf），请放入 Model/ 目录。下载: https://hf-mirror.com/ggerganov/whisper.cpp/tree/main".to_string())
+                }
+            }
+            WhisperBackend::FasterWhisper => {
+                Err("未找到 faster-whisper 模型目录（含 model.bin + tokenizer.json），请放入 Model/<模型名>/。可直接复用 PotPlayer 的 faster-whisper-* 目录。".to_string())
+            }
+        };
     }
-    Ok((exe, model, lang))
+    Ok((exe, model, lang, backend))
 }
 
 #[tauri::command]
@@ -533,7 +593,7 @@ pub async fn generate_ai_subtitle(
     logln!(log_lines, "=== AI subtitle generation start ===");
     logln!(log_lines, "video_path: {}", video_path);
 
-    let (executable, model, language) = match resolve_whisper_paths(&state) {
+    let (executable, model, language, backend) = match resolve_whisper_paths(&state) {
         Ok(v) => v,
         Err(e) => {
             logln!(log_lines, "resolve_whisper_paths failed: {}", e);
@@ -548,19 +608,24 @@ pub async fn generate_ai_subtitle(
         language
     };
     logln!(log_lines, "executable: {}", executable);
+    logln!(log_lines, "backend: {:?}", backend);
     logln!(log_lines, "model: {}", model);
     logln!(log_lines, "language: {}", language);
 
-    // Some whisper.cpp builds (notably PotPlayer's main64.exe) parse argv as
-    // ANSI/GBK and crash on UTF-8 paths with non-ASCII chars. Workaround:
-    // hardlink the model to a pure-ASCII path under %TEMP%/bilite-models/.
-    let model_for_whisper = match ascii_safe_model_path(&model) {
-        Ok(p) => p,
-        Err(e) => {
-            logln!(log_lines, "ascii_safe_model_path failed: {}", e);
-            flush_log(&log_lines);
-            return Err(e);
+    // whisper.cpp's main.exe parses argv as ANSI/GBK on Windows and crashes
+    // on UTF-8 paths with non-ASCII chars. faster-whisper-xxl is Python-based
+    // and handles UTF-8 correctly, so only apply the workaround for whisper.cpp.
+    let model_for_whisper = if backend == WhisperBackend::WhisperCpp {
+        match ascii_safe_model_path(&model) {
+            Ok(p) => p,
+            Err(e) => {
+                logln!(log_lines, "ascii_safe_model_path failed: {}", e);
+                flush_log(&log_lines);
+                return Err(e);
+            }
         }
+    } else {
+        model.clone()
     };
     if model_for_whisper != model {
         logln!(log_lines, "model (ASCII-safe alias): {}", model_for_whisper);
@@ -688,17 +753,32 @@ pub async fn generate_ai_subtitle(
     let model_str = model_for_whisper.clone();
     let audio_str = tmp_wav_str.clone();
     let out_base_for_task = tmp_out_base_str.clone();
+    let out_dir_for_task = tmp_dir.to_string_lossy().to_string();
     let lang = language.clone();
-    logln!(log_lines, "whisper cmd: \"{}\" -m \"{}\" -l \"{}\" -of \"{}\" -osrt \"{}\"",
-        exe_path, model_str, lang, out_base_for_task, audio_str);
+    let backend_for_task = backend;
+    logln!(log_lines,
+        "whisper cmd ({:?}): \"{}\" model=\"{}\" lang=\"{}\" out=\"{}\" audio=\"{}\"",
+        backend, exe_path, model_str, lang, out_base_for_task, audio_str);
 
     let result = tokio::task::spawn_blocking(move || -> Result<(String, String, std::process::ExitStatus), String> {
         let mut cmd = std::process::Command::new(&exe_path);
-        cmd.arg("-m").arg(&model_str)
-            .arg("-l").arg(&lang)
-            .arg("-of").arg(&out_base_for_task)
-            .arg("-osrt")
-            .arg(&audio_str);
+        match backend_for_task {
+            WhisperBackend::WhisperCpp => {
+                cmd.arg("-m").arg(&model_str)
+                    .arg("-l").arg(&lang)
+                    .arg("-of").arg(&out_base_for_task)
+                    .arg("-osrt")
+                    .arg(&audio_str);
+            }
+            WhisperBackend::FasterWhisper => {
+                // faster-whisper-xxl writes <audio_basename>.srt into output_dir
+                cmd.arg("--model").arg(&model_str)
+                    .arg("--language").arg(&lang)
+                    .arg("--output_format").arg("srt")
+                    .arg("--output_dir").arg(&out_dir_for_task)
+                    .arg(&audio_str);
+            }
+        }
         #[cfg(target_os = "windows")]
         {
             use std::os::windows::process::CommandExt;

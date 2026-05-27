@@ -156,19 +156,26 @@ async function showHelpTip(anchor: HTMLElement): Promise<void> {
   helpTipEl.className = "ai-help-tip";
   helpTipEl.innerHTML = `
     <div class="help-tip-title">如何配置 AI 字幕</div>
-    <ol class="help-tip-list">
-      <li>下载 <b>whisper.cpp</b> 预编译版（<a href="https://github.com/ggerganov/whisper.cpp/releases" target="_blank">官方Release</a>），把可执行文件（<code>whisper-cli.exe</code> 或 <code>main.exe</code>）放到：
-        <div class="help-tip-path">${escapeHtml(moduleDir)}</div>
-      </li>
-      <li>下载 <b>GGML 格式</b>模型（推荐 <code>ggml-medium.bin</code>，<a href="https://hf-mirror.com/ggerganov/whisper.cpp/tree/main" target="_blank">国内镜像</a> / <a href="https://huggingface.co/ggerganov/whisper.cpp/tree/main" target="_blank">官方</a>），放到：
-        <div class="help-tip-path">${escapeHtml(modelDir)}</div>
-      </li>
-      <li>放好后字幕菜单中此项会自动启用 — <b>无需在设置中手动配置路径</b></li>
-    </ol>
-    <div class="help-tip-warn">
-      ⚠ 注意：BiLite 使用 <b>whisper.cpp</b>（单文件 <code>ggml-*.bin</code>），<u>不兼容</u> PotPlayer 的 faster-whisper 模型（<code>model.bin + tokenizer.json</code> 那种目录式结构）
+    <p class="help-tip-intro">BiLite 不内置 AI 引擎，请按需选一种放入：</p>
+    <div class="help-tip-section">
+      <div class="help-tip-section-head">方案 A · whisper.cpp <span class="help-tip-tag">轻量</span></div>
+      <ol class="help-tip-list">
+        <li>下载 <a href="https://github.com/ggerganov/whisper.cpp/releases" target="_blank">whisper-cli.exe</a> 放到 <code>Module/Whisper/</code></li>
+        <li>下载 GGML 模型 <code>ggml-medium.bin</code>（<a href="https://hf-mirror.com/ggerganov/whisper.cpp/tree/main" target="_blank">国内镜像</a>）放到 <code>Model/</code></li>
+      </ol>
     </div>
-    <div class="help-tip-foot">点击 ? 图标可打开预设目录</div>
+    <div class="help-tip-section">
+      <div class="help-tip-section-head">方案 B · faster-whisper <span class="help-tip-tag">极速</span></div>
+      <ol class="help-tip-list">
+        <li>下载 <a href="https://github.com/Purfview/whisper-standalone-win/releases" target="_blank">faster-whisper-xxl.exe</a> 放到 <code>Module/Whisper/</code></li>
+        <li>faster-whisper 模型目录（<code>model.bin + tokenizer.json</code>，<b>可直接用 PotPlayer 的</b>）放到 <code>Model/&lt;名称&gt;/</code></li>
+      </ol>
+    </div>
+    <div class="help-tip-paths">
+      <div class="help-tip-path-row"><span class="k">引擎目录:</span><code>${escapeHtml(moduleDir)}</code></div>
+      <div class="help-tip-path-row"><span class="k">模型目录:</span><code>${escapeHtml(modelDir)}</code></div>
+    </div>
+    <div class="help-tip-foot">放好后字幕菜单中此项会自动启用 · 点击 <b>?</b> 打开预设目录</div>
   `;
   document.getElementById("player-container")!.appendChild(helpTipEl);
 
