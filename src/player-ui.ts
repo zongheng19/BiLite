@@ -1,6 +1,7 @@
 import { state, subscribe } from "./state";
-import { togglePause, toggleFullscreen, seek, setVolume } from "./bridge";
+import { togglePause, toggleFullscreen, seek } from "./bridge";
 import { showVolumeToast } from "./volume-toast";
+import { applyVolume } from "./volume";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 
 let hideTimer: number | null = null;
@@ -211,8 +212,9 @@ export function initPlayerUI(): void {
     }
     e.preventDefault();
     const delta = e.deltaY < 0 ? 2 : -2;
-    const v = Math.max(0, Math.min(100, state.volume + delta));
-    setVolume(v);
+    const base = state.muted ? 0 : state.volume;
+    const v = Math.max(0, Math.min(100, base + delta));
+    applyVolume(v);
     showVolumeToast(v);
   }, { passive: false });
 

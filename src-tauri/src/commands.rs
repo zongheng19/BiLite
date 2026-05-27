@@ -5,12 +5,12 @@ use crate::storage::config::AppConfig;
 use crate::storage::database::{Database, PlaybackRecord};
 use serde_json::json;
 use std::path::PathBuf;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use tauri::State;
 
 pub struct AppState {
     pub mpv_process: Mutex<MpvProcess>,
-    pub mpv_ipc: Mutex<Option<MpvIpc>>,
+    pub mpv_ipc: Arc<Mutex<Option<MpvIpc>>>,
     pub database: Mutex<Database>,
     pub config: Mutex<AppConfig>,
     pub data_dir: PathBuf,
@@ -215,6 +215,14 @@ pub fn save_config(config: AppConfig, state: State<AppState>) -> Result<(), Stri
     let mut current = state.config.lock().map_err(|e| e.to_string())?;
     *current = config.clone();
     current.save(&state.data_dir)
+}
+
+#[tauri::command]
+pub fn save_audio_prefs(volume: f64, muted: bool, state: State<AppState>) -> Result<(), String> {
+    let mut config = state.config.lock().map_err(|e| e.to_string())?;
+    config.volume = volume;
+    config.muted = muted;
+    config.save(&state.data_dir)
 }
 
 #[tauri::command]
@@ -459,6 +467,23 @@ fn find_whisper_model(state: &AppState, backend: WhisperBackend) -> Option<std::
     None
 }
 
+/// Parse a whisper.cpp output line like:
+///   "[00:00:00.000 --> 00:00:05.240]   今天我们..."
+/// Returns (start_srt, end_srt, text) suitable for an SRT entry.
+/// Times are converted from "HH:MM:SS.mmm" to SRT's "HH:MM:SS,mmm".
+fn parse_whisper_segment(line: &str) -> Option<(String, String, String)> {
+    let line = line.trim();
+    if !line.starts_with('[') { return None; }
+    let close = line.find(']')?;
+    let head = &line[1..close];
+    let rest = line[close + 1..].trim();
+    if rest.is_empty() { return None; }
+    let arrow = head.find("-->")?;
+    let start = head[..arrow].trim().replace('.', ",");
+    let end = head[arrow + 3..].trim().replace('.', ",");
+    Some((start, end, rest.to_string()))
+}
+
 fn detect_potplayer_models(state: &AppState) -> bool {
     for root in portable_roots(state) {
         let dir = root.join("Model");
@@ -586,8 +611,22 @@ pub async fn generate_ai_subtitle(
     }
     let _ = std::fs::create_dir_all(&state.data_dir);
     let flush_log = |lines: &Vec<String>| {
+        // Append mode so multiple runs keep their history. Truncate at start
+        // of file if it grows past 1 MiB.
         let body = lines.join("\n") + "\n";
-        let _ = std::fs::write(&log_path, body);
+        if let Ok(meta) = std::fs::metadata(&log_path) {
+            if meta.len() > 1_048_576 {
+                let _ = std::fs::write(&log_path, "");
+            }
+        }
+        if let Ok(mut f) = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&log_path)
+        {
+            use std::io::Write as _;
+            let _ = f.write_all(body.as_bytes());
+        }
     };
 
     logln!(log_lines, "=== AI subtitle generation start ===");
@@ -760,7 +799,68 @@ pub async fn generate_ai_subtitle(
         "whisper cmd ({:?}): \"{}\" model=\"{}\" lang=\"{}\" out=\"{}\" audio=\"{}\"",
         backend, exe_path, model_str, lang, out_base_for_task, audio_str);
 
+    // Streaming SRT: while whisper prints "[hh:mm:ss.sss --> ...]  text",
+    // we append each segment to the partial SRT file and tell mpv to reload
+    // its subtitle, so the user sees subtitles appear sentence-by-sentence
+    // rather than all at the end.
+    let partial_srt_path = final_srt.clone();
+    let _ = std::fs::remove_file(&partial_srt_path);
+    let _ = std::fs::write(&partial_srt_path, ""); // empty so mpv can load it
+    let partial_srt_str = partial_srt_path.to_string_lossy().to_string();
+    {
+        let ipc = state.mpv_ipc.lock().map_err(|e| e.to_string())?;
+        if let Some(ref ipc) = *ipc {
+            let _ = ipc.send_command(&[
+                json!("sub-add"),
+                json!(partial_srt_str.clone()),
+                json!("select"),
+            ]);
+        }
+    }
+
+    let partial_for_task = partial_srt_str.clone();
+    let ipc_lock_for_task: Arc<Mutex<Option<MpvIpc>>> = state.mpv_ipc.clone();
+
+    // GPU sampler — runs in its own thread, polls nvidia-smi every second.
+    use std::sync::atomic::{AtomicBool, Ordering};
+    let sampler_stop = Arc::new(AtomicBool::new(false));
+    let gpu_samples: Arc<Mutex<Vec<(u32, u32)>>> = Arc::new(Mutex::new(Vec::new())); // (util%, vram_mb)
+    let sampler_stop_clone = sampler_stop.clone();
+    let gpu_samples_clone = gpu_samples.clone();
+    let gpu_thread = std::thread::spawn(move || {
+        while !sampler_stop_clone.load(Ordering::Relaxed) {
+            let mut cmd = std::process::Command::new("nvidia-smi");
+            cmd.args([
+                "--query-gpu=utilization.gpu,memory.used",
+                "--format=csv,noheader,nounits",
+            ]);
+            #[cfg(target_os = "windows")]
+            {
+                use std::os::windows::process::CommandExt;
+                cmd.creation_flags(0x08000000);
+            }
+            if let Ok(out) = cmd.output() {
+                let s = String::from_utf8_lossy(&out.stdout);
+                if let Some(line) = s.lines().next() {
+                    let parts: Vec<&str> = line.split(',').map(|p| p.trim()).collect();
+                    if parts.len() >= 2 {
+                        if let (Ok(u), Ok(m)) = (parts[0].parse::<u32>(), parts[1].parse::<u32>()) {
+                            if let Ok(mut samples) = gpu_samples_clone.lock() {
+                                samples.push((u, m));
+                            }
+                        }
+                    }
+                }
+            }
+            std::thread::sleep(std::time::Duration::from_secs(1));
+        }
+    });
+
+    let whisper_start = std::time::Instant::now();
     let result = tokio::task::spawn_blocking(move || -> Result<(String, String, std::process::ExitStatus), String> {
+        use std::io::{BufRead, BufReader};
+        use std::process::Stdio;
+
         let mut cmd = std::process::Command::new(&exe_path);
         match backend_for_task {
             WhisperBackend::WhisperCpp => {
@@ -771,7 +871,6 @@ pub async fn generate_ai_subtitle(
                     .arg(&audio_str);
             }
             WhisperBackend::FasterWhisper => {
-                // faster-whisper-xxl writes <audio_basename>.srt into output_dir
                 cmd.arg("--model").arg(&model_str)
                     .arg("--language").arg(&lang)
                     .arg("--output_format").arg("srt")
@@ -779,18 +878,76 @@ pub async fn generate_ai_subtitle(
                     .arg(&audio_str);
             }
         }
+        cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
         #[cfg(target_os = "windows")]
         {
             use std::os::windows::process::CommandExt;
             cmd.creation_flags(0x08000000);
         }
-        let output = cmd.output().map_err(|e| format!("运行 whisper 失败: {}", e))?;
-        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-        let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-        Ok((stderr, stdout, output.status))
+        let mut child = cmd.spawn().map_err(|e| format!("运行 whisper 失败: {}", e))?;
+        let stdout = child.stdout.take().ok_or("no stdout")?;
+        let stderr = child.stderr.take().ok_or("no stderr")?;
+        let partial = partial_for_task.clone();
+        let ipc_clone = ipc_lock_for_task.clone();
+
+        let stdout_handle = std::thread::spawn(move || -> String {
+            use std::io::Write as _;
+            let reader = BufReader::new(stdout);
+            let mut all = String::new();
+            let mut idx: u32 = 0;
+            let mut last_reload = std::time::Instant::now();
+            for line in reader.lines() {
+                let line = match line { Ok(l) => l, Err(_) => continue };
+                all.push_str(&line);
+                all.push('\n');
+                if let Some((s, e, t)) = parse_whisper_segment(&line) {
+                    idx += 1;
+                    let entry = format!("{}\n{} --> {}\n{}\n\n", idx, s, e, t);
+                    if let Ok(mut f) = std::fs::OpenOptions::new()
+                        .create(true).append(true).open(&partial)
+                    {
+                        let _ = f.write_all(entry.as_bytes());
+                        let _ = f.flush();
+                    }
+                    if last_reload.elapsed().as_millis() > 800 {
+                        if let Ok(g) = ipc_clone.lock() {
+                            if let Some(ref ipc) = *g {
+                                let _ = ipc.send_command(&[json!("sub-reload")]);
+                            }
+                        }
+                        last_reload = std::time::Instant::now();
+                    }
+                }
+            }
+            // Final reload
+            if let Ok(g) = ipc_clone.lock() {
+                if let Some(ref ipc) = *g {
+                    let _ = ipc.send_command(&[json!("sub-reload")]);
+                }
+            }
+            all
+        });
+
+        let stderr_handle = std::thread::spawn(move || -> String {
+            let reader = BufReader::new(stderr);
+            let mut all = String::new();
+            for line in reader.lines() {
+                if let Ok(l) = line { all.push_str(&l); all.push('\n'); }
+            }
+            all
+        });
+
+        let status = child.wait().map_err(|e| format!("等待 whisper 失败: {}", e))?;
+        let stdout_text = stdout_handle.join().unwrap_or_default();
+        let stderr_text = stderr_handle.join().unwrap_or_default();
+        Ok((stderr_text, stdout_text, status))
     })
     .await
     .map_err(|e| format!("任务调度失败: {}", e));
+
+    let elapsed = whisper_start.elapsed();
+    sampler_stop.store(true, Ordering::Relaxed);
+    let _ = gpu_thread.join();
 
     let (whisper_stderr, whisper_stdout, whisper_status) = match result {
         Ok(Ok(t)) => t,
@@ -802,6 +959,25 @@ pub async fn generate_ai_subtitle(
         }
     };
     let _ = std::fs::remove_file(&tmp_wav_str);
+
+    // ===== Performance summary =====
+    logln!(log_lines, "--- performance ---");
+    logln!(log_lines, "whisper duration: {:.2}s", elapsed.as_secs_f64());
+    let samples = gpu_samples.lock().map(|g| g.clone()).unwrap_or_default();
+    if !samples.is_empty() {
+        let count = samples.len();
+        let util_sum: u64 = samples.iter().map(|(u, _)| *u as u64).sum();
+        let util_avg = util_sum as f64 / count as f64;
+        let util_max = samples.iter().map(|(u, _)| *u).max().unwrap_or(0);
+        let vram_max = samples.iter().map(|(_, m)| *m).max().unwrap_or(0);
+        let vram_avg: f64 =
+            samples.iter().map(|(_, m)| *m as u64).sum::<u64>() as f64 / count as f64;
+        logln!(log_lines, "GPU samples: {} (1 Hz)", count);
+        logln!(log_lines, "GPU util: avg={:.1}% peak={}%", util_avg, util_max);
+        logln!(log_lines, "VRAM:    avg={:.0}MB peak={}MB", vram_avg, vram_max);
+    } else {
+        logln!(log_lines, "GPU samples: none (nvidia-smi unavailable)");
+    }
     logln!(log_lines, "whisper exit: {:?}", whisper_status.code());
     logln!(log_lines, "whisper stderr ({} bytes): {}", whisper_stderr.len(), whisper_stderr);
     logln!(log_lines, "whisper stdout ({} bytes): {}", whisper_stdout.len(), whisper_stdout);
@@ -912,7 +1088,9 @@ pub async fn generate_ai_subtitle(
 
     let ipc = state.mpv_ipc.lock().map_err(|e| e.to_string())?;
     if let Some(ref ipc) = *ipc {
-        ipc.send_command(&[json!("sub-add"), json!(final_srt_str.clone()), json!("select")])?;
+        // We sub-add'd this path at stream start; just reload to pick up the
+        // final authoritative SRT content.
+        let _ = ipc.send_command(&[json!("sub-reload")]);
     }
 
     logln!(log_lines, "=== success ===");

@@ -5,6 +5,8 @@ use std::path::PathBuf;
 pub struct AppConfig {
     pub theme: String,
     pub volume: f64,
+    #[serde(default)]
+    pub muted: bool,
     pub playback_speed: f64,
     pub subtitle_font_size: u32,
     pub file_associations: Vec<String>,
@@ -44,6 +46,7 @@ impl Default for AppConfig {
         Self {
             theme: "dark".to_string(),
             volume: 80.0,
+            muted: false,
             playback_speed: 1.0,
             subtitle_font_size: 24,
             file_associations: vec![

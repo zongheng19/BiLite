@@ -56,6 +56,9 @@ export async function whisperDefaultDir(): Promise<WhisperPaths> {
 export async function openWhisperDir(): Promise<void> {
   return invoke("open_whisper_dir");
 }
+export async function saveAudioPrefs(volume: number, muted: boolean): Promise<void> {
+  return invoke("save_audio_prefs", { volume, muted });
+}
 export async function getConfig(): Promise<any> {
   return invoke("get_config");
 }

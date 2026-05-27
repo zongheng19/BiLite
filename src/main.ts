@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { onMpvEvent, MpvEvent, playFile, seek } from "./bridge";
+import { onMpvEvent, MpvEvent, playFile, seek, setVolume } from "./bridge";
 import { state, updateState } from "./state";
 import { initPlayerUI, formatTime } from "./player-ui";
 import { initProgressBar } from "./progress-bar";
@@ -12,6 +12,7 @@ import { initPlaylistPanel, getCurrentFile, setCurrentFile } from "./playlist-pa
 import { initEmptyState, hideEmptyState } from "./empty-state";
 import { initContextMenu } from "./context-menu";
 import { feedStatsEvent } from "./stats-overlay";
+import { flushAudioPrefs } from "./audio-prefs";
 import { showWizard } from "./wizard";
 
 async function loadFileWithResume(filePath: string): Promise<void> {
@@ -24,6 +25,10 @@ async function loadFileWithResume(filePath: string): Promise<void> {
   await playFile(filePath);
   setCurrentFile(filePath);
   updateState({ title: filePath.split(/[/\\]/).pop() || "" });
+
+  // Re-apply current mute/volume so the new file plays at the user's
+  // last preference even after mpv resets per-file properties.
+  setVolume(state.muted ? 0 : state.volume);
 
   // Auto-resume to last playback position
   if (record && record.position > 5 && record.position < record.duration - 10) {
@@ -125,6 +130,27 @@ async function init(): Promise<void> {
   initPlaylistPanel();
   initEmptyState((path) => loadFileWithResume(path));
   initContextMenu();
+
+  // Restore audio prefs (volume + muted) from config
+  try {
+    const cfg = await invoke<any>("get_config");
+    if (cfg && typeof cfg.volume === "number") {
+      const vol = Math.max(0, Math.min(100, cfg.volume));
+      const muted = !!cfg.muted;
+      updateState({
+        volume: vol,
+        prevVolume: vol > 0 ? vol : 80,
+        muted,
+      });
+      // Push to mpv: 0 if muted, otherwise saved volume
+      setVolume(muted ? 0 : vol);
+    }
+  } catch (err) {
+    console.warn("[BiLite] failed to load audio prefs:", err);
+  }
+
+  // Flush pending audio-pref save when window is about to close
+  window.addEventListener("beforeunload", () => flushAudioPrefs());
 
   await onMpvEvent((event: MpvEvent) => {
     if (event.name === "time-pos" && event.data != null)

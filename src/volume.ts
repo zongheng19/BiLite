@@ -1,6 +1,7 @@
-import { state, subscribe } from "./state";
+import { state, subscribe, updateState } from "./state";
 import { setVolume } from "./bridge";
 import { showVolumeToast } from "./volume-toast";
+import { persistAudioPrefs } from "./audio-prefs";
 
 export function initVolume(): void {
   const btn = document.getElementById("btn-volume")!;
@@ -9,19 +10,10 @@ export function initVolume(): void {
   const track = slider.querySelector(".volume-slider-track") as HTMLElement;
   const fill = document.getElementById("volume-fill")!;
   const thumb = document.getElementById("volume-thumb")!;
-  let muted = false;
-  let prevVolume = state.volume;
 
   btn.addEventListener("click", (e) => {
     e.stopPropagation();
-    if (muted) {
-      setVolume(prevVolume);
-      muted = false;
-    } else {
-      prevVolume = state.volume;
-      setVolume(0);
-      muted = true;
-    }
+    toggleMute();
   });
 
   // Slider click and drag
@@ -29,8 +21,7 @@ export function initVolume(): void {
   const updateFromEvent = (e: MouseEvent) => {
     const rect = track.getBoundingClientRect();
     const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-    setVolume(pct * 100);
-    muted = false;
+    applyVolume(pct * 100);
   };
   track.addEventListener("mousedown", (e) => {
     e.stopPropagation();
@@ -45,12 +36,13 @@ export function initVolume(): void {
   subscribe((s) => {
     const use = btn.querySelector("use")!;
     let icon = "#icon-volume-high";
-    if (s.volume === 0) icon = "#icon-volume-mute";
+    if (s.muted || s.volume === 0) icon = "#icon-volume-mute";
     else if (s.volume < 30) icon = "#icon-volume-low";
     else if (s.volume < 70) icon = "#icon-volume-mid";
     use.setAttribute("href", icon);
 
-    const pct = Math.max(0, Math.min(100, s.volume));
+    const displayVol = s.muted ? 0 : s.volume;
+    const pct = Math.max(0, Math.min(100, displayVol));
     fill.style.width = `${pct}%`;
     thumb.style.left = `${pct}%`;
     const valueEl = document.getElementById("volume-value");
@@ -60,9 +52,36 @@ export function initVolume(): void {
   wrap.addEventListener("wheel", (e) => {
     e.preventDefault();
     const delta = e.deltaY < 0 ? 5 : -5;
-    const newVol = Math.max(0, Math.min(100, state.volume + delta));
-    setVolume(newVol);
+    const base = state.muted ? 0 : state.volume;
+    const newVol = Math.max(0, Math.min(100, base + delta));
+    applyVolume(newVol);
     showVolumeToast(newVol);
-    muted = false;
   });
+}
+
+/** Set the active volume; un-mutes if it was muted and volume > 0. */
+export function applyVolume(v: number): void {
+  const clamped = Math.max(0, Math.min(100, v));
+  if (clamped > 0) {
+    updateState({ volume: clamped, prevVolume: clamped, muted: false });
+    setVolume(clamped);
+  } else {
+    // setting to 0 == implicit mute
+    updateState({ volume: 0, muted: true });
+    setVolume(0);
+  }
+  persistAudioPrefs();
+}
+
+/** Toggle mute on/off, restoring previous volume when un-muting. */
+export function toggleMute(): void {
+  if (state.muted || state.volume === 0) {
+    const restore = state.prevVolume > 0 ? state.prevVolume : 80;
+    updateState({ volume: restore, muted: false });
+    setVolume(restore);
+  } else {
+    updateState({ prevVolume: state.volume, muted: true });
+    setVolume(0);
+  }
+  persistAudioPrefs();
 }

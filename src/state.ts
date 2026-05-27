@@ -3,6 +3,9 @@ export interface PlayerState {
   timePos: number;
   duration: number;
   volume: number;
+  // Volume to restore when unmuting (snapshot of last non-zero volume)
+  prevVolume: number;
+  muted: boolean;
   speed: number;
   eofReached: boolean;
   title: string;
@@ -16,6 +19,8 @@ export const state: PlayerState = {
   timePos: 0,
   duration: 0,
   volume: 80,
+  prevVolume: 80,
+  muted: false,
   speed: 1.0,
   eofReached: false,
   title: "",

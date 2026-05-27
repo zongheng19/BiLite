@@ -1,7 +1,8 @@
-import { togglePause, seek, setVolume, setSpeed, toggleFullscreen } from "./bridge";
+import { togglePause, seek, setSpeed, toggleFullscreen } from "./bridge";
 import { state } from "./state";
 import { showVolumeToast } from "./volume-toast";
 import { toggleStats } from "./stats-overlay";
+import { applyVolume, toggleMute } from "./volume";
 
 let rightHeld = false;
 let leftHeld = false;
@@ -70,8 +71,9 @@ export function initShortcuts(): void {
       case "ArrowUp":
         e.preventDefault();
         {
-          const v = Math.min(100, state.volume + 10);
-          setVolume(v);
+          const base = state.muted ? 0 : state.volume;
+          const v = Math.min(100, base + 10);
+          applyVolume(v);
           showVolumeToast(v);
         }
         break;
@@ -79,8 +81,9 @@ export function initShortcuts(): void {
       case "ArrowDown":
         e.preventDefault();
         {
-          const v = Math.max(0, state.volume - 10);
-          setVolume(v);
+          const base = state.muted ? 0 : state.volume;
+          const v = Math.max(0, base - 10);
+          applyVolume(v);
           showVolumeToast(v);
         }
         break;
@@ -94,13 +97,8 @@ export function initShortcuts(): void {
       case "m":
       case "M":
         e.preventDefault();
-        if (state.volume > 0) {
-          setVolume(0);
-          showVolumeToast(0);
-        } else {
-          setVolume(80);
-          showVolumeToast(80);
-        }
+        toggleMute();
+        showVolumeToast(state.muted ? 0 : state.volume);
         break;
 
       case "!": // Shift+1

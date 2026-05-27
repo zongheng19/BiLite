@@ -22,7 +22,7 @@ fn main() {
         .plugin(tauri_plugin_dialog::init())
         .manage(AppState {
             mpv_process: Mutex::new(MpvProcess::new()),
-            mpv_ipc: Mutex::new(None),
+            mpv_ipc: std::sync::Arc::new(Mutex::new(None)),
             database: Mutex::new(database),
             config: Mutex::new(config),
             data_dir,
@@ -146,6 +146,7 @@ fn main() {
             commands::get_config,
             commands::save_config,
             commands::is_first_run,
+            commands::save_audio_prefs,
             commands::get_playlist,
             commands::get_next_file,
             commands::get_prev_file,
