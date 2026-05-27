@@ -16,6 +16,7 @@ import { showWizard } from "./wizard";
 
 async function loadFileWithResume(filePath: string): Promise<void> {
   hideEmptyState();
+  closeEndPrompt();
   const record = await invoke<{ position: number; duration: number } | null>(
     "get_playback_position", { path: filePath }
   );
@@ -50,6 +51,64 @@ function showResumePrompt(position: number, onRestart: () => void): void {
   setTimeout(() => prompt.remove(), 6000);
 }
 
+let endPromptEl: HTMLElement | null = null;
+
+function showEndPrompt(): void {
+  if (endPromptEl) return;
+  endPromptEl = document.createElement("div");
+  endPromptEl.className = "end-prompt";
+  endPromptEl.innerHTML = `
+    <div class="end-prompt-title">播放结束</div>
+    <div class="end-prompt-actions">
+      <button class="end-prompt-btn primary" data-act="replay">
+        <svg viewBox="0 0 24 24"><path fill="currentColor" d="M12 5V1L7 6l5 5V7c3.31 0 6 2.69 6 6s-2.69 6-6 6-6-2.69-6-6H4c0 4.42 3.58 8 8 8s8-3.58 8-8-3.58-8-8-8z"/></svg>
+        重新播放
+      </button>
+      <button class="end-prompt-btn" data-act="open">
+        <svg viewBox="0 0 24 24"><path fill="currentColor" d="M10 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z"/></svg>
+        打开新视频
+      </button>
+    </div>
+  `;
+  document.getElementById("player-container")!.appendChild(endPromptEl);
+
+  endPromptEl.querySelector('[data-act="replay"]')!.addEventListener("click", () => {
+    seek(0, "absolute");
+    togglePauseFromEnd();
+    closeEndPrompt();
+  });
+  endPromptEl.querySelector('[data-act="open"]')!.addEventListener("click", async () => {
+    closeEndPrompt();
+    const selected = await openFileDialog();
+    if (selected) await loadFileWithResume(selected);
+  });
+}
+
+function closeEndPrompt(): void {
+  if (endPromptEl) {
+    endPromptEl.remove();
+    endPromptEl = null;
+  }
+}
+
+async function togglePauseFromEnd(): Promise<void> {
+  // After EOF, mpv is paused. Send a play command via toggle.
+  const { togglePause } = await import("./bridge");
+  togglePause();
+}
+
+async function openFileDialog(): Promise<string | null> {
+  const { open } = await import("@tauri-apps/plugin-dialog");
+  const selected = await open({
+    multiple: false,
+    filters: [
+      { name: "视频文件", extensions: ["mp4", "mkv", "avi", "mov", "wmv", "flv", "webm", "m4v", "ts"] },
+      { name: "所有文件", extensions: ["*"] },
+    ],
+  });
+  return typeof selected === "string" ? selected : null;
+}
+
 async function init(): Promise<void> {
   const firstRun: boolean = await invoke("is_first_run");
   if (firstRun) {
@@ -78,8 +137,13 @@ async function init(): Promise<void> {
       updateState({ volume: event.data as number });
     else if (event.name === "speed" && event.data != null)
       updateState({ speed: event.data as number });
-    else if (event.name === "eof-reached")
-      updateState({ eofReached: event.data as boolean });
+    else if (event.name === "eof-reached") {
+      const reached = event.data as boolean;
+      updateState({ eofReached: reached });
+      if (reached) {
+        showEndPrompt();
+      }
+    }
     // Forward all events to stats overlay (it filters internally)
     feedStatsEvent(event.name, event.data);
   });

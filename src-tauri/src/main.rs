@@ -151,6 +151,11 @@ fn main() {
             commands::get_prev_file,
             commands::register_file_associations,
             commands::get_cli_args,
+            commands::generate_ai_subtitle,
+            commands::whisper_configured,
+            commands::ai_subtitle_exists,
+            commands::whisper_default_dir,
+            commands::open_whisper_dir,
         ])
         .run(tauri::generate_context!())
         .expect("error while running BiLite");

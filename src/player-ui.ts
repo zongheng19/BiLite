@@ -1,6 +1,7 @@
 import { state, subscribe } from "./state";
 import { togglePause, toggleFullscreen, seek, setVolume } from "./bridge";
 import { showVolumeToast } from "./volume-toast";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 
 let hideTimer: number | null = null;
 
@@ -29,6 +30,20 @@ export function initPlayerUI(): void {
   const timeInput = document.getElementById("time-input") as HTMLInputElement;
   const videoTitle = document.getElementById("video-title")!;
   const container = document.getElementById("player-container")!;
+  const appWindow = getCurrentWindow();
+
+  // Window control buttons
+  const btnMin = document.getElementById("btn-min");
+  const btnMax = document.getElementById("btn-max");
+  const btnClose = document.getElementById("btn-close");
+  btnMin?.addEventListener("click", (e) => { e.stopPropagation(); appWindow.minimize(); });
+  btnMax?.addEventListener("click", async (e) => {
+    e.stopPropagation();
+    const isMax = await appWindow.isMaximized();
+    if (isMax) appWindow.unmaximize();
+    else appWindow.maximize();
+  });
+  btnClose?.addEventListener("click", (e) => { e.stopPropagation(); appWindow.close(); });
 
   playBtn.addEventListener("click", (e) => { e.stopPropagation(); togglePause(); });
   fullscreenBtn.addEventListener("click", (e) => { e.stopPropagation(); toggleFullscreen(); });
@@ -37,6 +52,58 @@ export function initPlayerUI(): void {
   document.addEventListener("fullscreenchange", () => {
     const fsUse = fullscreenBtn.querySelector("use")!;
     fsUse.setAttribute("href", document.fullscreenElement ? "#icon-fullscreen-exit" : "#icon-fullscreen");
+  });
+
+  // Esc exits fullscreen (Tauri-based, since we use window.set_fullscreen, not browser API)
+  document.addEventListener("keydown", async (e) => {
+    if (e.key === "Escape") {
+      const target = e.target as HTMLElement;
+      if (target.tagName === "INPUT" || target.tagName === "TEXTAREA") return;
+      const isFs = await appWindow.isFullscreen();
+      if (isFs) appWindow.setFullscreen(false);
+    }
+  });
+
+  // Hold-and-drag the video area to move the window
+  let dragStarted = false;
+  let mousedownPos: { x: number; y: number } | null = null;
+  container.addEventListener("mousedown", (e) => {
+    if (e.button !== 0) return; // left button only
+    const target = e.target as HTMLElement;
+    // Don't drag when clicking on UI elements
+    if (
+      target.closest("#control-bar") ||
+      target.closest("#top-bar") ||
+      target.closest("button") ||
+      target.closest("input") ||
+      target.closest("#empty-state") ||
+      target.closest(".ctx-menu") ||
+      target.closest(".adjust-panel") ||
+      target.closest(".bp-panel") ||
+      target.closest(".info-toast") ||
+      target.closest(".playlist-panel") ||
+      target.closest(".resume-prompt")
+    ) {
+      return;
+    }
+    mousedownPos = { x: e.clientX, y: e.clientY };
+    dragStarted = false;
+  });
+  container.addEventListener("mousemove", async (e) => {
+    if (!mousedownPos || dragStarted) return;
+    const dx = Math.abs(e.clientX - mousedownPos.x);
+    const dy = Math.abs(e.clientY - mousedownPos.y);
+    // Threshold to distinguish click from drag
+    if (dx > 4 || dy > 4) {
+      dragStarted = true;
+      try { await appWindow.startDragging(); } catch (_) { /* ignore */ }
+    }
+  });
+  document.addEventListener("mouseup", () => {
+    mousedownPos = null;
+    // Reset dragStarted on next tick so the immediately-following click
+    // handler can still see the correct value (true if drag happened).
+    setTimeout(() => { dragStarted = false; }, 0);
   });
 
   // Time display click → input mode
@@ -70,10 +137,24 @@ export function initPlayerUI(): void {
   timeInput.addEventListener("blur", () => commitTimeInput(true));
   timeInput.addEventListener("click", (e) => e.stopPropagation());
 
-  // Single click on video area toggles pause; double click toggles fullscreen
-  container.addEventListener("click", (e) => {
-    const target = e.target as HTMLElement;
-    if (
+  // Single-click vs double-click coordination:
+  // Browser fires click before dblclick. Delay single-click; cancel if
+  // a dblclick arrives within the threshold. We use our own 190ms threshold
+  // since the browser's native dblclick threshold (~500ms) is too lenient.
+  let pendingClickTimer: number | null = null;
+  let lastClickTime = 0;
+  let lastClickGap = Infinity;
+  const DBLCLICK_THRESHOLD = 190;
+
+  const cancelPendingClick = () => {
+    if (pendingClickTimer) {
+      clearTimeout(pendingClickTimer);
+      pendingClickTimer = null;
+    }
+  };
+
+  const isUIClick = (target: HTMLElement): boolean =>
+    !!(
       target.closest("#control-bar") ||
       target.closest("#top-bar") ||
       target.closest("button") ||
@@ -85,28 +166,32 @@ export function initPlayerUI(): void {
       target.closest(".info-toast") ||
       target.closest(".playlist-panel") ||
       target.closest(".resume-prompt")
-    ) {
-      return;
-    }
-    togglePause();
+    );
+
+  // Single click on video area toggles pause (delayed); double click toggles fullscreen
+  container.addEventListener("click", (e) => {
+    if (dragStarted) return;
+    const target = e.target as HTMLElement;
+    if (isUIClick(target)) return;
+
+    const now = Date.now();
+    lastClickGap = now - lastClickTime;
+    lastClickTime = now;
+
+    cancelPendingClick();
+    pendingClickTimer = window.setTimeout(() => {
+      togglePause();
+      pendingClickTimer = null;
+    }, DBLCLICK_THRESHOLD);
   });
   container.addEventListener("dblclick", (e) => {
+    // Only treat as a real double-click if the two clicks happened within
+    // our threshold. Otherwise let the second click's pause timer fire
+    // naturally (the first click's pause already fired by now).
+    if (lastClickGap > DBLCLICK_THRESHOLD) return;
     const target = e.target as HTMLElement;
-    if (
-      target.closest("#control-bar") ||
-      target.closest("#top-bar") ||
-      target.closest("button") ||
-      target.closest("input") ||
-      target.closest("#empty-state") ||
-      target.closest(".ctx-menu") ||
-      target.closest(".adjust-panel") ||
-      target.closest(".bp-panel") ||
-      target.closest(".info-toast") ||
-      target.closest(".playlist-panel") ||
-      target.closest(".resume-prompt")
-    ) {
-      return;
-    }
+    if (isUIClick(target)) return;
+    cancelPendingClick();
     toggleFullscreen();
   });
 

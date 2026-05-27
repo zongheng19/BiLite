@@ -2,6 +2,7 @@ import { state } from "./state";
 import { toggleLoop, toggleMirror } from "./bridge";
 import { showColorPanel } from "./color-panel";
 import { showAudioPanel } from "./audio-panel";
+import { showSettingsPanel } from "./settings-panel";
 import { getCurrentFile } from "./playlist-panel";
 import { toggleStats, isStatsVisible } from "./stats-overlay";
 
@@ -132,6 +133,11 @@ function showMenuAt(x: number, y: number): void {
       onClick: () => toggleStats(),
     },
     { type: "divider" },
+    {
+      label: "设置",
+      hint: "AI / 偏好",
+      onClick: () => showSettingsPanel(),
+    },
     {
       label: "关于 BiLite",
       onClick: () => showAbout(),

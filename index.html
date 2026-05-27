@@ -62,7 +62,21 @@
         </div>
       </div>
       <div id="top-bar" class="auto-hide">
-        <span class="video-title" id="video-title"></span>
+        <div class="top-bar-left" data-tauri-drag-region>
+          <span class="app-brand">BiLite</span>
+          <span class="video-title" id="video-title"></span>
+        </div>
+        <div class="top-bar-right">
+          <button class="win-btn" id="btn-min" title="最小化" aria-label="最小化">
+            <svg viewBox="0 0 12 12"><line x1="2" y1="6" x2="10" y2="6" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>
+          </button>
+          <button class="win-btn" id="btn-max" title="最大化" aria-label="最大化">
+            <svg viewBox="0 0 12 12"><rect x="2.5" y="2.5" width="7" height="7" fill="none" stroke="currentColor" stroke-width="1.2" rx="1"/></svg>
+          </button>
+          <button class="win-btn win-btn-close" id="btn-close" title="关闭" aria-label="关闭">
+            <svg viewBox="0 0 12 12"><line x1="3" y1="3" x2="9" y2="9" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/><line x1="9" y1="3" x2="3" y2="9" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>
+          </button>
+        </div>
       </div>
       <div id="subtitle-layer"></div>
       <div id="speed-toast" class="speed-toast">

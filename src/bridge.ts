@@ -40,6 +40,28 @@ export async function toggleLoop(enabled: boolean): Promise<void> {
 export async function toggleMirror(enabled: boolean): Promise<void> {
   return invoke("toggle_mirror", { enabled });
 }
+export async function generateAiSubtitle(videoPath: string): Promise<string> {
+  return invoke("generate_ai_subtitle", { videoPath });
+}
+export async function whisperConfigured(): Promise<boolean> {
+  return invoke("whisper_configured");
+}
+export interface WhisperPaths {
+  model_dir: string;
+  module_dir: string;
+}
+export async function whisperDefaultDir(): Promise<WhisperPaths> {
+  return invoke("whisper_default_dir");
+}
+export async function openWhisperDir(): Promise<void> {
+  return invoke("open_whisper_dir");
+}
+export async function getConfig(): Promise<any> {
+  return invoke("get_config");
+}
+export async function saveConfig(config: any): Promise<void> {
+  return invoke("save_config", { config });
+}
 
 export interface MpvEvent {
   event?: string;

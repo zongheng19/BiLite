@@ -24,19 +24,100 @@
   top: 0;
   left: 0;
   right: 0;
-  padding: 18px 24px 30px;
-  background: var(--bg-top);
-  z-index: 10;
+  height: 40px;
+  padding: 0 4px 0 18px;
+  background: linear-gradient(180deg, rgba(0, 0, 0, 0.85) 0%, rgba(0, 0, 0, 0.4) 70%, transparent 100%);
+  z-index: 60;
   transition: opacity 0.25s ease;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  -webkit-app-region: drag;
+  app-region: drag;
+}
+
+.top-bar-left {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  -webkit-app-region: drag;
+  app-region: drag;
+}
+
+.app-brand {
+  display: inline-flex;
+  align-items: center;
+  font-size: 13px;
+  font-weight: 600;
+  color: #fff;
+  letter-spacing: 0.6px;
+  padding: 3px 10px;
+  border-radius: 4px;
+  background: linear-gradient(135deg, var(--accent), #4fc3f7);
+  box-shadow: 0 1px 4px rgba(0, 161, 214, 0.4);
+  user-select: none;
+  flex-shrink: 0;
 }
 
 #top-bar .video-title {
   color: var(--text-primary);
-  font-size: 15px;
+  font-size: 13px;
   font-weight: 500;
   text-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
   letter-spacing: 0.2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  min-width: 0;
 }
+
+.top-bar-right {
+  display: flex;
+  align-items: center;
+  height: 100%;
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+  flex-shrink: 0;
+}
+
+.win-btn {
+  width: 40px;
+  height: 32px;
+  background: none;
+  border: none;
+  color: rgba(255, 255, 255, 0.75);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  transition: background 0.12s ease, color 0.12s ease;
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+}
+
+.win-btn svg {
+  width: 12px;
+  height: 12px;
+}
+
+.win-btn:hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+}
+
+.win-btn-close:hover {
+  background: #e81123;
+  color: #fff;
+}
+
+/* Hide window control buttons in fullscreen (still show drag/title area, but no min/max/close) */
+:fullscreen #top-bar { padding: 14px 20px 30px; }
+:fullscreen .top-bar-right { display: none; }
 
 /* ===== Subtitle ===== */
 #subtitle-layer {
